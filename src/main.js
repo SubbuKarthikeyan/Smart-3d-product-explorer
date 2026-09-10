@@ -7,7 +7,7 @@ import { Renderer } from './core/Renderer.js';
 import { Lighting } from './core/Lighting.js';
 
 import { ModelLoader } from './model/ModelLoader.js';
-import { components } from './model/ComponentData.js';
+import { getComponentsForModel } from './model/ComponentData.js';
 import { ComponentManager } from './interaction/ComponentManager.js';
 import { HotspotManager } from './interaction/HotspotManager.js';
 import { SceneRaycaster } from './interaction/Raycaster.js';
@@ -18,17 +18,27 @@ import { GuidedTour } from './experience/GuidedTour.js';
 import { InfoPanel } from './ui/InfoPanel.js';
 import { Controls } from './ui/Controls.js';
 import { LoadingScreen } from './ui/LoadingScreen.js';
+import { ModelSelector } from './ui/ModelSelector.js';
+import { MODEL_CATALOG } from './model/ModelCatalog.js';
 import { appState } from './state/AppState.js';
 
 /**
- * Smart 3D Product Explorer — Phase 5 Bootstrap
- * Orchestrates Core Three.js, Product Model, 3D Hotspots, Raycasting,
- * Reversible Highlighting, Information Panel, Camera Focus, Exploded View,
- * Guided 3D Tour, and Global Experience Reset.
+ * Smart 3D Product Explorer — Phase V2.3 Bootstrap
+ * Orchestrates multi-model component registration, interactive inspection,
+ * 3D beacons, camera focus, dynamic loading, and model switching.
  */
 
 class App {
-  constructor() {
+  /**
+   * @param {string} [modelPath] - GLB path to load (from model catalog selection).
+   * @param {Function} [onChangeModel] - Callback to return to model selection.
+   */
+  constructor(modelPath = '/models/product.glb', onChangeModel = null) {
+    this._modelPath = modelPath;
+    this._onChangeModel = onChangeModel;
+    this._modelType = (this._modelPath.toLowerCase().includes('engine') || appState.selectedModel?.type === 'engine' || appState.selectedModel?.id === 'engine') ? 'engine' : 'product';
+    this._modelTitle = appState.selectedModel?.name || (this._modelType === 'engine' ? 'Engine Assembly' : 'Demo Product Model');
+    this._animFrameId = null;
     this.container = document.getElementById('canvas-container');
 
     // 1. UI Loading Screen
@@ -75,7 +85,8 @@ class App {
         if (entry && entry.object3D) {
           this.cameraFocus.focusOn(entry.object3D);
         }
-      }
+      },
+      this._modelTitle
     );
 
     this.controlsUI = new Controls({
@@ -84,7 +95,8 @@ class App {
       onTourNext: () => this.guidedTour.next(),
       onTourPrev: () => this.guidedTour.previous(),
       onTourExit: () => this.guidedTour.stop(),
-      onReset: () => this.resetApplication()
+      onReset: () => this.resetApplication(),
+      onChangeModel: () => this.destroyAndChangeModel()
     });
 
     // Sync Experience Managers with UI
@@ -115,11 +127,13 @@ class App {
     this.raycaster = null;
 
     // 8. Event Listeners & Animation Loop
-    this.setupResize();
-    this.animate = this.animate.bind(this);
-    requestAnimationFrame(this.animate);
+    this._onResize = this._handleResize.bind(this);
+    window.addEventListener('resize', this._onResize);
 
-    // 9. Load Product Model & Initialize Systems
+    this.animate = this.animate.bind(this);
+    this._animFrameId = requestAnimationFrame(this.animate);
+
+    // 9. Load Product/Engine Model & Initialize Systems
     this.initProduct();
   }
 
@@ -127,9 +141,9 @@ class App {
     try {
       this.loadingScreen.clearError();
       this.loadingScreen.show();
-      this.loadingScreen.updateProgress(35, 'Loading 3D product geometry...');
+      this.loadingScreen.updateProgress(35, `Loading ${this._modelTitle} geometry...`);
 
-      // Clean product root and hotspots if this is a retry
+      // Clean product root and hotspots if this is a reload
       if (this.sceneManager) {
         this.sceneManager.clearProduct();
       }
@@ -138,19 +152,22 @@ class App {
       }
 
       const result = await this.modelLoader.load(
-        '/models/product.glb',
+        this._modelPath,
         this.sceneManager.getProductRoot(),
         (percent) => {
           this.loadingScreen.updateProgress(35 + percent * 0.5, `Loading model (${percent}%)...`);
         }
       );
 
-      this.loadingScreen.updateProgress(85, 'Configuring interactive systems & tour pathways...');
+      this.loadingScreen.updateProgress(85, 'Configuring interactive systems & camera...');
+
+      // Resolve model-specific component definitions
+      const activeComponents = getComponentsForModel(this._modelType);
 
       // Map model nodes to components
       if (result && result.model) {
-        this.registerModelComponents(result.model);
-        this.hotspotManager.createHotspots(components, this.componentManager);
+        this.registerModelComponents(result.model, activeComponents);
+        this.hotspotManager.createHotspots(activeComponents, this.componentManager);
         this.explodedView.init(this.sceneManager.getProductRoot());
 
         if (this.raycaster) {
@@ -164,7 +181,7 @@ class App {
           this.hotspotManager
         );
 
-        // Frame camera based on model bounds
+        // Frame camera dynamically based on loaded model bounding box
         this.cameraManager.frameObject(this.sceneManager.getProductRoot(), this.controls);
 
         // Cache default overview camera state
@@ -174,22 +191,23 @@ class App {
         );
       }
 
-      this.loadingScreen.updateProgress(100, 'Product Ready');
+      this.loadingScreen.updateProgress(100, `${this._modelTitle} Ready`);
       appState.isLoading = false;
       this.loadingScreen.hide();
 
-      console.log('[Smart 3D Product Explorer] Phase 6 Visual Polish & Final Validation ready.');
+      console.log(`[Smart 3D Product Explorer] V2.3 — Explorer ready. Model: ${this._modelPath} (${this._modelType})`);
     } catch (err) {
-      console.error('[App] Critical error during product initialization:', err);
+      console.error('[App] Critical error during model initialization:', err);
       this.loadingScreen.showError(
-        'Unable to load the 3D product. Please verify asset availability.',
-        () => this.initProduct()
+        `Unable to load 3D model at "${this._modelPath}". Please verify asset availability.`,
+        () => this.initProduct(),
+        () => this.destroyAndChangeModel()
       );
     }
   }
 
-  registerModelComponents(model) {
-    components.forEach((compData) => {
+  registerModelComponents(model, activeComponents = []) {
+    activeComponents.forEach((compData) => {
       let matchedObject = null;
 
       model.traverse((child) => {
@@ -200,9 +218,9 @@ class App {
 
       if (matchedObject) {
         this.componentManager.registerComponent(compData, matchedObject);
-        console.log(`[App] Registered interactive node: '${compData.modelNode}' -> ${compData.name}`);
+        console.log(`[App] Registered interactive node: '${compData.modelNode}' -> ${compData.name} (${compData.id})`);
       } else {
-        console.warn(`[App] Optional component model node '${compData.modelNode}' not found in 3D model.`);
+        console.warn(`[App] Component node '${compData.modelNode}' not in active model.`);
       }
     });
   }
@@ -243,18 +261,20 @@ class App {
     appState.currentTourStep = -1;
   }
 
-  setupResize() {
-    window.addEventListener('resize', () => {
-      const width = this.container ? this.container.clientWidth : window.innerWidth;
-      const height = this.container ? this.container.clientHeight : window.innerHeight;
+  _handleResize() {
+    const width = this.container ? this.container.clientWidth : window.innerWidth;
+    const height = this.container ? this.container.clientHeight : window.innerHeight;
 
+    if (this.cameraManager) {
       this.cameraManager.updateAspect(width, height);
+    }
+    if (this.renderer) {
       this.renderer.resize(width, height);
-    });
+    }
   }
 
   animate() {
-    requestAnimationFrame(this.animate);
+    this._animFrameId = requestAnimationFrame(this.animate);
 
     const now = performance.now();
 
@@ -274,7 +294,9 @@ class App {
     }
 
     // 4. Update OrbitControls damping
-    this.controls.update();
+    if (this.controls) {
+      this.controls.update();
+    }
 
     // 5. Update 3D hotspot pulsing, billboarding, and position tracking
     if (this.hotspotManager) {
@@ -282,12 +304,154 @@ class App {
     }
 
     // 6. Single central render call
-    this.renderer.render(
-      this.sceneManager.getScene(),
-      this.cameraManager.getCamera()
-    );
+    if (this.renderer && this.sceneManager && this.cameraManager) {
+      this.renderer.render(
+        this.sceneManager.getScene(),
+        this.cameraManager.getCamera()
+      );
+    }
+  }
+
+  /**
+   * Tear down this app instance and return to model selection
+   */
+  destroyAndChangeModel() {
+    this.destroy();
+    if (this._onChangeModel) {
+      this._onChangeModel();
+    }
+  }
+
+  /**
+   * Clean up all Three.js and DOM resources
+   */
+  destroy() {
+    console.log('[App] Destroying current 3D explorer instance and freeing resources...');
+
+    // 1. Stop animation loop
+    if (this._animFrameId) {
+      cancelAnimationFrame(this._animFrameId);
+      this._animFrameId = null;
+    }
+
+    // 2. Stop experience & interaction systems
+    if (this.guidedTour) this.guidedTour.stop();
+    if (this.explodedView) this.explodedView.reset();
+    if (this.componentManager) this.componentManager.clear();
+    if (this.hotspotManager) this.hotspotManager.clear();
+    if (this.raycaster) this.raycaster.destroy();
+    if (this.controls) this.controls.dispose();
+
+    // 3. Dispose 3D model resources
+    if (this.modelLoader && this.modelLoader.loadedModel) {
+      disposeModelHierarchy(this.modelLoader.loadedModel);
+    }
+
+    // 4. Clear scene product container
+    if (this.sceneManager) {
+      this.sceneManager.clearProduct();
+    }
+
+    // 5. Remove renderer DOM element
+    const canvas = this.renderer ? this.renderer.getDomElement() : null;
+    if (canvas && canvas.parentNode) {
+      canvas.parentNode.removeChild(canvas);
+    }
+
+    // 6. Remove window listeners
+    if (this._onResize) {
+      window.removeEventListener('resize', this._onResize);
+    }
+
+    // 7. Destroy UI components
+    if (this.infoPanel) this.infoPanel.destroy();
+    if (this.controlsUI) this.controlsUI.destroy();
+    if (this.loadingScreen) this.loadingScreen.destroy();
+
+    // 8. Reset AppState explorer properties
+    appState.selectedComponent = null;
+    appState.hoveredComponent = null;
+    appState.isExploded = false;
+    appState.isTourActive = false;
+    appState.currentTourStep = 0;
+    appState.isLoading = false;
+    appState.isCameraAnimating = false;
+
+    console.log('[App] Teardown complete.');
   }
 }
 
-// Bootstrap Application
-new App();
+// ─── Resource Cleanup Helper ────────────────────────────────────────────────
+
+function disposeModelHierarchy(object3D) {
+  if (!object3D) return;
+
+  object3D.traverse((child) => {
+    if (child.isMesh) {
+      if (child.geometry) {
+        child.geometry.dispose();
+      }
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((mat) => {
+            disposeMaterial(mat);
+          });
+        } else {
+          disposeMaterial(child.material);
+        }
+      }
+    }
+  });
+}
+
+function disposeMaterial(mat) {
+  if (!mat) return;
+  // Dispose attached textures
+  ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap'].forEach((mapProp) => {
+    if (mat[mapProp] && typeof mat[mapProp].dispose === 'function') {
+      mat[mapProp].dispose();
+    }
+  });
+  mat.dispose();
+}
+
+// ─── V2.2 Bootstrap: Model Selection ⇄ Explorer Two-Way Flow ─────────────────
+
+function bootstrap() {
+  // Pre-flight check
+  if (!Renderer.isWebGLAvailable()) {
+    const loadingScreen = new LoadingScreen();
+    loadingScreen.showWebGLError();
+    console.error('[Bootstrap] WebGL is not available in this environment.');
+    return;
+  }
+
+  let currentApp = null;
+
+  const showSelection = () => {
+    appState.selectedModel = null;
+    appState.currentView = 'selection';
+    selector.show();
+  };
+
+  const launchApp = (selectedEntry) => {
+    appState.selectedModel = selectedEntry;
+    appState.currentView = 'explorer';
+
+    console.log(
+      `[Bootstrap] Launching Explorer for: "${selectedEntry.name}" (${selectedEntry.path})`
+    );
+
+    selector.hide(() => {
+      currentApp = new App(selectedEntry.path, () => {
+        showSelection();
+      });
+    });
+  };
+
+  const selector = new ModelSelector(MODEL_CATALOG, (selectedEntry) => {
+    launchApp(selectedEntry);
+  });
+}
+
+bootstrap();

@@ -10,7 +10,8 @@ export class Controls {
     onTourNext = null,
     onTourPrev = null,
     onTourExit = null,
-    onReset = null
+    onReset = null,
+    onChangeModel = null
   } = {}) {
     this.onExplodeToggle = onExplodeToggle;
     this.onTourStart = onTourStart;
@@ -18,6 +19,7 @@ export class Controls {
     this.onTourPrev = onTourPrev;
     this.onTourExit = onTourExit;
     this.onReset = onReset;
+    this.onChangeModel = onChangeModel;
 
     this.container = null;
     this.isExploded = false;
@@ -42,6 +44,11 @@ export class Controls {
     if (!this.container) return;
 
     this.container.innerHTML = `
+      <button class="btn-control btn-change-model" id="btn-change-model" title="Return to Model Selection">
+        <span class="control-icon">⬡</span>
+        <span class="control-label">Change Model</span>
+      </button>
+
       <button class="btn-control ${this.isExploded ? 'active' : ''}" id="btn-toggle-explode">
         <span class="control-icon">${this.isExploded ? '⧊' : '⧉'}</span>
         <span class="control-label">${this.isExploded ? 'Reassemble' : 'Explode View'}</span>
@@ -59,6 +66,14 @@ export class Controls {
     `;
 
     // Bind listeners
+    const changeModelBtn = this.container.querySelector('#btn-change-model');
+    if (changeModelBtn) {
+      changeModelBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.onChangeModel) this.onChangeModel();
+      });
+    }
+
     const explodeBtn = this.container.querySelector('#btn-toggle-explode');
     if (explodeBtn) {
       explodeBtn.addEventListener('click', (e) => {
@@ -161,5 +176,12 @@ export class Controls {
     } else {
       this.renderDefault();
     }
+  }
+
+  destroy() {
+    if (this.container && this.container.parentNode) {
+      this.container.parentNode.removeChild(this.container);
+    }
+    this.container = null;
   }
 }
