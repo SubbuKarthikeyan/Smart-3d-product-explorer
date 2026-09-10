@@ -232,4 +232,14 @@ export class ComponentManager {
   onHover(cb) {
     this.onHoverCallbacks.push(cb);
   }
+
+  clear() {
+    this.deselectComponent();
+    this.clearHover();
+    this.components.clear();
+    this.meshToComponent.clear();
+    this.onSelectCallbacks = [];
+    this.onDeselectCallbacks = [];
+    this.onHoverCallbacks = [];
+  }
 }

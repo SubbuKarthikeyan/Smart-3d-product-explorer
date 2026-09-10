@@ -62,14 +62,20 @@ export class ModelLoader {
         ...normalization
       };
 
-      console.log('[ModelLoader] GLB product loaded and normalized successfully.');
+      console.log(`[ModelLoader] GLB model '${url}' loaded and normalized successfully.`);
       return this.metadata;
     } catch (error) {
+      const isEngine = url.toLowerCase().includes('engine');
+      const modelLabel = isEngine ? 'Engine Assembly' : 'Demo Product Model';
+
       console.warn(
-        `[ModelLoader] Notice: '${url}' was not found or could not be parsed (${error.message}). Building procedural digital twin product model...`
+        `[ModelLoader] Notice: '${url}' was not found (${error.message}). Building procedural 3D ${modelLabel}...`
       );
 
-      const fallbackModel = this.createProceduralProduct();
+      const fallbackModel = isEngine
+        ? this.createProceduralEngine()
+        : this.createProceduralProduct();
+
       const normalization = this.normalizeModel(fallbackModel, 3.5);
       this.inspectNodes(fallbackModel);
 
@@ -277,5 +283,146 @@ export class ModelLoader {
     productGroup.add(control);
 
     return productGroup;
+  }
+
+  /**
+   * High-precision procedural engine assembly model
+   * Creates named components: TurbineFan, CompressorCore, CombustionChamber, ExhaustNozzle, BypassNacelle
+   */
+  createProceduralEngine() {
+    const engineGroup = new THREE.Group();
+    engineGroup.name = 'ProceduralEngine';
+
+    const titaniumMat = new THREE.MeshStandardMaterial({
+      color: 0x64748b,
+      metalness: 0.9,
+      roughness: 0.2
+    });
+
+    const alloyDarkMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      metalness: 0.85,
+      roughness: 0.3
+    });
+
+    const copperGoldMat = new THREE.MeshStandardMaterial({
+      color: 0xd97706,
+      metalness: 0.8,
+      roughness: 0.25
+    });
+
+    const carbonMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      metalness: 0.5,
+      roughness: 0.4
+    });
+
+    const cyanGlowMat = new THREE.MeshStandardMaterial({
+      color: 0x06b6d4,
+      emissive: 0x06b6d4,
+      emissiveIntensity: 0.6,
+      roughness: 0.1
+    });
+
+    // 1. BypassNacelle (Outer casing)
+    const nacelleGroup = new THREE.Group();
+    nacelleGroup.name = 'BypassNacelle';
+
+    const outerCowlGeom = new THREE.CylinderGeometry(1.2, 1.1, 2.6, 32, 1, true);
+    const outerCowl = new THREE.Mesh(outerCowlGeom, carbonMat);
+    outerCowl.rotation.z = Math.PI / 2;
+    outerCowl.castShadow = true;
+    outerCowl.receiveShadow = true;
+    nacelleGroup.add(outerCowl);
+
+    const cowlLipGeom = new THREE.TorusGeometry(1.2, 0.08, 16, 32);
+    const cowlLip = new THREE.Mesh(cowlLipGeom, titaniumMat);
+    cowlLip.rotation.y = Math.PI / 2;
+    cowlLip.position.x = 1.3;
+    nacelleGroup.add(cowlLip);
+    engineGroup.add(nacelleGroup);
+
+    // 2. TurbineFan (Front intake fan blades & spinner cone)
+    const fanGroup = new THREE.Group();
+    fanGroup.name = 'TurbineFan';
+
+    const coneGeom = new THREE.ConeGeometry(0.35, 0.8, 24);
+    const spinner = new THREE.Mesh(coneGeom, titaniumMat);
+    spinner.rotation.z = -Math.PI / 2;
+    spinner.position.x = 1.35;
+    fanGroup.add(spinner);
+
+    // Radial fan blades
+    for (let i = 0; i < 16; i++) {
+      const angle = (i / 16) * Math.PI * 2;
+      const bladeGeom = new THREE.BoxGeometry(0.04, 0.75, 0.18);
+      const blade = new THREE.Mesh(bladeGeom, titaniumMat);
+      blade.position.set(1.0, Math.sin(angle) * 0.65, Math.cos(angle) * 0.65);
+      blade.rotation.x = angle;
+      blade.rotation.y = 0.35;
+      fanGroup.add(blade);
+    }
+    engineGroup.add(fanGroup);
+
+    // 3. CompressorCore (Multi-stage axial compressor)
+    const compressorGroup = new THREE.Group();
+    compressorGroup.name = 'CompressorCore';
+
+    const coreShaftGeom = new THREE.CylinderGeometry(0.45, 0.5, 1.2, 24);
+    const coreShaft = new THREE.Mesh(coreShaftGeom, alloyDarkMat);
+    coreShaft.rotation.z = Math.PI / 2;
+    coreShaft.position.x = 0.3;
+    compressorGroup.add(coreShaft);
+
+    for (let s = -0.2; s <= 0.8; s += 0.25) {
+      const stageRingGeom = new THREE.TorusGeometry(0.65, 0.04, 12, 24);
+      const stageRing = new THREE.Mesh(stageRingGeom, cyanGlowMat);
+      stageRing.rotation.y = Math.PI / 2;
+      stageRing.position.x = s;
+      compressorGroup.add(stageRing);
+    }
+    engineGroup.add(compressorGroup);
+
+    // 4. CombustionChamber (Fuel injectors & burn rings)
+    const combustionGroup = new THREE.Group();
+    combustionGroup.name = 'CombustionChamber';
+
+    const chamberGeom = new THREE.CylinderGeometry(0.55, 0.52, 0.9, 24);
+    const chamber = new THREE.Mesh(chamberGeom, copperGoldMat);
+    chamber.rotation.z = Math.PI / 2;
+    chamber.position.x = -0.7;
+    chamber.castShadow = true;
+    chamberGroup.add(chamber);
+
+    // Fuel manifold pipes
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const pipeGeom = new THREE.CylinderGeometry(0.03, 0.03, 0.7, 8);
+      const pipe = new THREE.Mesh(pipeGeom, copperGoldMat);
+      pipe.position.set(-0.7, Math.sin(angle) * 0.68, Math.cos(angle) * 0.68);
+      pipe.rotation.z = Math.PI / 2;
+      combustionGroup.add(pipe);
+    }
+    engineGroup.add(combustionGroup);
+
+    // 5. ExhaustNozzle (Variable geometry vectoring nozzle)
+    const nozzleGroup = new THREE.Group();
+    nozzleGroup.name = 'ExhaustNozzle';
+
+    const nozzleGeom = new THREE.ConeGeometry(0.65, 0.9, 24, 1, true);
+    const nozzle = new THREE.Mesh(nozzleGeom, alloyDarkMat);
+    nozzle.rotation.z = Math.PI / 2;
+    nozzle.position.x = -1.6;
+    nozzle.castShadow = true;
+    nozzleGroup.add(nozzle);
+
+    const glowRingGeom = new THREE.TorusGeometry(0.42, 0.05, 16, 32);
+    const glowRing = new THREE.Mesh(glowRingGeom, cyanGlowMat);
+    glowRing.rotation.y = Math.PI / 2;
+    glowRing.position.x = -2.0;
+    nozzleGroup.add(glowRing);
+    engineGroup.add(nozzleGroup);
+
+    return engineGroup;
   }
 }

@@ -66,19 +66,28 @@ export class LoadingScreen {
     }
   }
 
-  showError(message, onRetry = null) {
+  showError(message, onRetry = null, onBack = null) {
     if (!this.errorBox) return;
 
     this.show();
     this.errorBox.innerHTML = `
       <div class="loading-error-message">${escapeHTML(message)}</div>
-      ${
-        onRetry
-          ? `<button class="btn-loading-retry" id="btn-loading-retry">
-               <span>↻</span> Retry
-             </button>`
-          : ''
-      }
+      <div class="loading-error-actions" style="display: flex; gap: 10px; justify-content: center; margin-top: 12px;">
+        ${
+          onRetry
+            ? `<button class="btn-loading-retry" id="btn-loading-retry">
+                 <span>↻</span> Retry
+               </button>`
+            : ''
+        }
+        ${
+          onBack
+            ? `<button class="btn-loading-retry" id="btn-loading-back" style="background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2);">
+                 <span>←</span> Back to Models
+               </button>`
+            : ''
+        }
+      </div>
     `;
     this.errorBox.classList.add('visible');
 
@@ -93,6 +102,18 @@ export class LoadingScreen {
       }
     }
 
+    if (onBack) {
+      const backBtn = this.errorBox.querySelector('#btn-loading-back');
+      if (backBtn) {
+        backBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.clearError();
+          this.hide();
+          onBack();
+        });
+      }
+    }
+
     if (this.statusText) {
       this.statusText.textContent = 'Failed to load experience';
     }
@@ -102,6 +123,16 @@ export class LoadingScreen {
     this.showError(
       'WebGL is not available in this browser. Please use a modern browser with WebGL hardware acceleration enabled.'
     );
+  }
+
+  destroy() {
+    if (this.container && this.container.parentNode) {
+      this.container.parentNode.removeChild(this.container);
+    }
+    this.container = null;
+    this.barFill = null;
+    this.statusText = null;
+    this.errorBox = null;
   }
 }
 
